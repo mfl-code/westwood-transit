@@ -104,13 +104,13 @@
 
                     etaList.innerHTML += `
                         <tr>
-                            <td class="station-name">
+                            <td class="station-name" data-label="Transfer Hub">
                                 <a href="${translinkLink}" target="_blank" rel="noopener noreferrer">${row.name}</a>
                             </td>
-                            <td class="skytrain-time">${row.startTimeStr}</td>
-                            <td><span class="bus-tag">${row.busRoute}</span></td>
-                            <td class="wait-label">${waitDisplay}</td>
-                            <td>${row.busHtml}</td>
+                            <td class="skytrain-time" data-label="SkyTrain Arrival">${row.startTimeStr}</td>
+                            <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
+                            <td class="wait-label" data-label="Wait Time">${waitDisplay}</td>
+                            <td data-label="Upcoming Arrivals">${row.busHtml}</td>
                         </tr>
                     `;
                 });

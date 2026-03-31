@@ -9,7 +9,101 @@ body {
     padding: 40px; 
     margin: 0;
 }
+/* ... [Keep all your existing CSS above this line] ... */
 
+/* ==========================================================================
+   Responsive / Mobile Layout
+   ========================================================================== */
+@media (max-width: 768px) {
+    /* Reduce global padding on small screens */
+    body { padding: 15px; }
+    .card { padding: 1.5rem; }
+    h1 { font-size: 1.8rem; }
+    h2 { font-size: 1.5rem; }
+
+    /* Stack header elements */
+    .header-row {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 10px;
+    }
+    .update-container { text-align: left; }
+
+    /* Stack controls (dropdowns and buttons) to full width */
+    .controls {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    select, button { width: 100%; box-sizing: border-box; }
+
+    /* --- Responsive Table to Card Transformation --- */
+    .results-table, 
+    .results-table tbody, 
+    .results-table tr, 
+    .results-table td {
+        display: block;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    /* Hide the traditional table header */
+    .results-table thead { display: none; }
+
+    /* Turn each row into a card */
+    .results-table tr {
+        margin-bottom: 1.5rem;
+        border: 1px solid #e2e8f0;
+        border-radius: 8px;
+        padding: 12px;
+        background-color: #f8fafc;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.04);
+    }
+
+    /* Layout each cell as a flex container */
+    .results-table td {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-bottom: 1px solid #edf2f7;
+        padding: 10px 0;
+        text-align: right;
+    }
+
+    /* Remove border from the last item in the card */
+    .results-table td:last-child { border-bottom: none; }
+
+    /* Insert the column header label before the data using the data-label attribute */
+    .results-table td::before {
+        content: attr(data-label);
+        font-weight: 700;
+        color: #4a5568;
+        font-size: 0.8rem;
+        text-transform: uppercase;
+        text-align: left;
+        margin-right: 15px;
+        flex-shrink: 0;
+    }
+
+    /* Special handling for lists of times so they wrap nicely */
+    .arrival-list {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: flex-end;
+        gap: 5px;
+    }
+    
+    /* Ensure the "Upcoming Arrivals" cell stacks nicely if there are many times */
+    .results-table td[data-label="Upcoming Arrivals"] {
+        flex-direction: column;
+        align-items: flex-start;
+    }
+    .results-table td[data-label="Upcoming Arrivals"]::before {
+        margin-bottom: 8px;
+    }
+    .results-table td[data-label="Upcoming Arrivals"] .arrival-list {
+        justify-content: flex-start;
+    }
+}
 .card { 
     background: white; 
     padding: 2.5rem; 
