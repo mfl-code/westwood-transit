@@ -1,0 +1,342 @@
+/**
+ * transit.js - Dynamic GTFS Engine
+ * © 2026 Michael Frankel-Lopez. All rights reserved.
+ * Description: Client-side engine that downloads, extracts, and joins 
+ * TransLink's static GTFS (General Transit Feed Specification) ZIP file.
+ * It acts as an in-memory relational database to query precise bus arrival times.
+ */
+
+const PROXY = "https://cors-anywhere.herokuapp.com/";
+const GTFS_URL = PROXY + "https://gtfs-static.translink.ca/gtfs/google_transit.zip";
+const CACHE_KEY = "translink_dynamic_cache";
+const CACHE_DURATION = 60 * 60 * 1000; // 1 Hour in milliseconds
+
+// Global Constants
+const BUS_ARRIVAL_WINDOW_MINS = 120; // Default window for looking up upcoming buses
+
+// ------------------------------------------------------------------------
+// Configuration & Target Data
+// ------------------------------------------------------------------------
+
+const stations = [
+    { name: "VCC-Clark", time: 0 },
+    { name: "Commercial-Broadway", time: 1 },
+    { name: "Renfrew", time: 4 },
+    { name: "Rupert", time: 5 },
+    { name: "Gilmore", time: 7 },
+    { name: "Brentwood Town Centre", time: 9 },
+    { name: "Holdom", time: 11 },
+    { name: "Sperling-Burnaby Lake", time: 13 },
+    { name: "Lake City Way", time: 16 },
+    { name: "Production Way-University", time: 18 },
+    { name: "Lougheed Town Centre", time: 20 },
+    { name: "Burquitlam", time: 23 },
+    { name: "Moody Centre", time: 28 },
+    { name: "Inlet Centre", time: 30 },
+    { name: "Coquitlam Central", time: 33 },
+    { name: "Lincoln", time: 35 },
+    { name: "Lafarge Lake-Douglas", time: 36 }
+];
+
+const milleniumTargets = [
+    { name: "Moody Centre", bus: "183", stop: "61911" },
+    { name: "Inlet Centre", bus: "184", stop: "59569" },
+    { name: "Coquitlam Central", bus: "185", stop: "53357" },
+    { name: "Lafarge Lake-Douglas", bus: "183", stop: "59565" }
+];
+
+const westwoodTargets = [
+    { name: "Across Bramblewood", stop: "53923", line: "183" },
+    { name: "Bramblewood Park", stop: "58869", line: "183" },
+    { name: "Bramblewood Park", stop: "58869", line: "184" },
+    { name: "Landsdowne / Panorama", stop: "53903", line: "185" },
+    { name: "Parkway / Panorama", stop: "58838", line: "187" }
+];
+
+// ------------------------------------------------------------------------
+// Public API Functions
+// ------------------------------------------------------------------------
+
+/**
+ * Calculates travel times from a starting SkyTrain station to specific transfer hubs
+ * and fetches the subsequent bus connections.
+ * @param {string} startStationName - The name of the boarding SkyTrain station.
+ * @returns {Promise<Array>} Array of formatted HTML arrival data for the UI.
+ */
+async function getSchedulesForStation(startStationName, referenceTime = new Date()) {
+    const startStation = stations.find(station => station.name === startStationName);
+
+    if (!startStation) throw "Station not found";
+
+    // Filter targets that are further down the line, and calculate ETA for transfer
+    const batchRequest = milleniumTargets
+        .filter(target => {
+            const destinationStation = stations.find(station => station.name === target.name);
+            return destinationStation.time >= startStation.time;
+        })
+        .map(target => {
+            const targetStation = stations.find(station => station.name === target.name);
+            const travelTimeMinutes = targetStation.time - startStation.time;
+            return {
+                name: target.name,
+                line: target.bus,
+                stop: target.stop,
+                startTime: new Date(referenceTime.getTime() + travelTimeMinutes * 60000),
+                period: BUS_ARRIVAL_WINDOW_MINS
+            };
+        });
+
+    return await getBusArrivals(batchRequest);
+}
+
+/**
+ * Fetches and flattens all immediate departures for the Westwood Plateau specific stops.
+ * @param {Date} referenceTime - The baseline time to calculate waits from.
+ * @returns {Promise<Array>} Chronologically sorted array of all upcoming bus arrivals.
+ */
+/**
+ * Fetches and flattens all immediate departures for the Westwood Plateau specific stops.
+ * Refactored to use the central getBusArrivals logic.
+ * @param {Date} referenceTime - The baseline time to calculate waits from.
+ * @returns {Promise<Array>} Chronologically sorted array of all upcoming bus arrivals.
+ */
+async function getSchedulesForStops(referenceTime = new Date()) {
+    // Map Westwood targets to the standard request format
+    const requestArray = westwoodTargets.map(target => ({
+        ...target,
+        startTime: referenceTime,
+        period: BUS_ARRIVAL_WINDOW_MINS
+    }));
+
+    // Use the central processor
+    const results = await getBusArrivals(requestArray);
+
+    // Filter out entries with no upcoming buses and sort chronologically
+    return results
+        .filter(r => r.wait !== -1)
+        .sort((a, b) => a.wait - b.wait);
+}
+
+// ------------------------------------------------------------------------
+// Internal GTFS Processing Logic
+// ------------------------------------------------------------------------
+
+/**
+ * Core processor for grouped bus arrivals.
+ */
+async function getBusArrivals(requestArray) {
+    let scheduleData = getCachedSchedule();
+    const targetBusLines = [...new Set(requestArray.map(request => request.line))];
+    const targetStopCodes = [...new Set(requestArray.map(request => request.stop))];
+
+    if (!scheduleData) {
+        scheduleData = await refreshGTFSCache();
+    }
+
+    return requestArray.map(request => {
+        const rawArrivals = (scheduleData[request.stop] && scheduleData[request.stop][request.line]) || [];
+        const windowEnd = new Date(request.startTime.getTime() + (request.period * 60000));
+
+        const processedArrivals = rawArrivals
+            .map(entry => ({
+                time: parseTransitTime(entry.time),
+                status: entry.isValidated ? 'verified' : 'scheduled'
+            }))
+            .filter(arrival => arrival.time >= request.startTime && arrival.time <= windowEnd)
+            .sort((a, b) => a.time - b.time);
+
+        const firstCatchable = processedArrivals[0] || null;
+
+        // Construct HTML fragment for the UI
+        let htmlFragment = '<div class="arrival-list">';
+        if (processedArrivals.length === 0) {
+            htmlFragment += `<span class="time-entry">No buses in ${request.period}m window</span>`;
+        } else {
+            processedArrivals.slice(0, 5).forEach(arrival => {
+                const timeStr = arrival.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
+                const statusClass = arrival.status === 'verified' ? 'status-verified' : '';
+                const catchableClass = (arrival === firstCatchable) ? 'target-bus' : '';
+                htmlFragment += `<span class="time-entry ${statusClass} ${catchableClass}">${timeStr}</span>`;
+            });
+        }
+        htmlFragment += '</div>';
+
+        const waitMinutes = firstCatchable ? Math.round((firstCatchable.time - request.startTime) / 60000) : -1;
+
+        return {
+            name: request.name,
+            busRoute: request.line,
+            stopCode: request.stop,
+            startTimeStr: request.startTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }),
+
+            timeStr: firstCatchable ? firstCatchable.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false }) : '--:--',
+            status: firstCatchable ? firstCatchable.status : 'scheduled',
+            busHtml: htmlFragment,
+            wait: waitMinutes,
+            sortKey: waitMinutes === -1 ? 999 : waitMinutes
+        };
+    });
+}
+
+/**
+ * Downloads, unzips, and parses the TransLink GTFS archive.
+ * Filters a massive dataset down to only the requested routes and stops for optimal local storage.
+ */
+async function refreshGTFSCache() {
+    try {
+        // Step 1: Collect all unique bus lines from both target sets
+        const allBusLines = [
+            ...new Set([
+                ...milleniumTargets.map(t => t.bus),
+                ...westwoodTargets.map(t => t.line)
+            ])
+        ];
+
+        // Collect all unique stop codes from both target sets
+        const allStopCodes = [
+            ...new Set([
+                ...milleniumTargets.map(t => t.stop),
+                ...westwoodTargets.map(t => t.stop)
+            ])
+        ];
+
+        // Step 2: Fetch and extract the ZIP archive
+        const response = await fetch(GTFS_URL);
+        if (response.status === 403) {
+            throw "Access Denied. Please visit <a href='https://cors-anywhere.herokuapp.com/corsdemo' target='_blank'>CORS Anywhere</a> and <strong>press the button</strong> to request temporary access.";
+        }
+        if (!response.ok) throw `Server Error: ${response.statusText}`;
+
+        const blob = await response.blob();
+        const zip = await JSZip.loadAsync(blob);
+
+        // Calculate "Today" context for schedules
+        const now = new Date();
+        const todayStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+        const dayName = days[now.getDay()];
+
+        // Step 3: Determine active Service IDs for today (handling exceptions/holidays)
+        const calendar = parseCSV(await zip.file("calendar.txt").async("string"));
+        const calendarDates = parseCSV(await zip.file("calendar_dates.txt").async("string"));
+        
+        let activeServices = new Set(
+            calendar
+                .filter(row => row[dayName] === '1' && todayStr >= row.start_date && todayStr <= row.end_date)
+                .map(row => row.service_id)
+        );
+        
+        calendarDates.forEach(row => {
+            if (row.date === todayStr) {
+                if (row.exception_type === '1') activeServices.add(row.service_id); // Added service
+                if (row.exception_type === '2') activeServices.delete(row.service_id); // Removed service
+            }
+        });
+
+        // Step 4: Map textual route names and stop codes to their internal GTFS IDs
+        const routes = parseCSV(await zip.file("routes.txt").async("string"));
+        const routeIdMap = routes
+            .filter(r => allBusLines.includes(r.route_short_name))
+            .reduce((acc, r) => { acc[r.route_id] = r.route_short_name; return acc; }, {});
+
+        const stops = parseCSV(await zip.file("stops.txt").async("string"));
+        const stopIdMap = stops
+            .filter(s => allStopCodes.includes(s.stop_code))
+            .reduce((acc, s) => { acc[s.stop_id] = s.stop_code; return acc; }, {});
+
+        // Step 5: Find specific Trip IDs running today for our targeted routes
+        const trips = parseCSV(await zip.file("trips.txt").async("string"));
+        const validTrips = trips
+            .filter(t => routeIdMap[t.route_id] && activeServices.has(t.service_id))
+            .reduce((acc, t) => { acc[t.trip_id] = routeIdMap[t.route_id]; return acc; }, {});
+
+        // Step 5: Extract final arrival times mapping only to our valid trips and stops
+        const stopTimesText = await zip.file("stop_times.txt").async("string");
+        const stopTimesLines = stopTimesText.split(/\r?\n/);
+        const stHeaders = stopTimesLines[0].split(',').map(h => h.replace(/"/g, '').trim());
+
+        const tripIdx = stHeaders.indexOf("trip_id");
+        const stopIdx = stHeaders.indexOf("stop_id");
+        const arrivalIdx = stHeaders.indexOf("arrival_time");
+        const timepointIdx = stHeaders.indexOf("timepoint");
+
+        const finalSchedule = {};
+        
+        // Loop through all stop times, keeping only the intersected data
+        for (let i = 1; i < stopTimesLines.length; i++) {
+            const row = stopTimesLines[i].split(',').map(v => v.replace(/"/g, '').trim());
+            if (row.length < stHeaders.length) continue;
+
+            const routeShortName = validTrips[row[tripIdx]];
+            const stopCode = stopIdMap[row[stopIdx]];
+
+            if (routeShortName && stopCode) {
+                if (!finalSchedule[stopCode]) finalSchedule[stopCode] = {};
+                if (!finalSchedule[stopCode][routeShortName]) finalSchedule[stopCode][routeShortName] = [];
+                
+                finalSchedule[stopCode][routeShortName].push({
+                    time: row[arrivalIdx],
+                    isValidated: row[timepointIdx] === '1' // Indicates a strict timing point
+                });
+            }
+        }
+
+        // Cache the optimized dataset
+        localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), schedule: finalSchedule }));
+        return finalSchedule;
+
+    } catch (e) { 
+        throw e; 
+    }
+}
+
+// ------------------------------------------------------------------------
+// Utility Functions
+// ------------------------------------------------------------------------
+
+/**
+ * Converts raw CSV text into an array of JavaScript objects.
+ */
+function parseCSV(text) {
+    const lines = text.split(/\r?\n/);
+    const headers = lines[0].split(',').map(header => header.replace(/"/g, '').trim());
+    
+    return lines.slice(1).filter(line => line.trim()).map(line => {
+        const values = line.split(',').map(value => value.replace(/"/g, '').trim());
+        return headers.reduce((obj, header, index) => { 
+            obj[header] = values[index]; 
+            return obj; 
+        }, {});
+    });
+}
+
+/**
+ * Parses GTFS formatted time (HH:MM:SS) into a standard JS Date object.
+ * Correctly handles over-midnight GTFS times (e.g., "25:30:00" = 1:30 AM next day).
+ */
+function parseTransitTime(timeStr) {
+    let [hours, minutes, seconds] = timeStr.split(':').map(Number);
+    const dateObj = new Date();
+    
+    if (hours >= 24) { 
+        dateObj.setDate(dateObj.getDate() + 1); 
+        hours -= 24; 
+    }
+    
+    dateObj.setHours(hours, minutes, seconds, 0);
+    return dateObj;
+}
+
+/**
+ * Retrieves and validates the cache duration.
+ */
+function getCachedSchedule() {
+    const cachedData = localStorage.getItem(CACHE_KEY);
+    if (!cachedData) return null;
+    
+    const parsedData = JSON.parse(cachedData);
+    // Invalidate cache if older than defined CACHE_DURATION
+    if (Date.now() - parsedData.timestamp > CACHE_DURATION) return null;
+    
+    return parsedData.schedule;
+}

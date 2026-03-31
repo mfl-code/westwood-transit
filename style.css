@@ -1,0 +1,174 @@
+/* ==========================================================================
+   Global Styles & Reset 
+   ========================================================================== */
+body { 
+    font-family: 'Segoe UI', system-ui, sans-serif; 
+    background-color: #f4f7f6; 
+    display: flex; 
+    justify-content: center; 
+    padding: 40px; 
+    margin: 0;
+}
+
+.card { 
+    background: white; 
+    padding: 2.5rem; 
+    border-radius: 12px; 
+    box-shadow: 0 10px 30px rgba(0,0,0,0.08); 
+    width: 100%; 
+    max-width: 1000px; 
+}
+
+/* ==========================================================================
+   Layout Variations (Hub vs Dashboards)
+   ========================================================================== */
+.hub-layout { 
+    align-items: center; 
+    height: 100vh; 
+    padding: 0; 
+}
+
+.hub-card { 
+    text-align: center; 
+    max-width: 500px; 
+    padding: 3rem;
+}
+
+/* ==========================================================================
+   Typography & Headers
+   ========================================================================== */
+.header-row { 
+    display: flex; 
+    justify-content: space-between; 
+    align-items: flex-end; 
+    border-bottom: 3px solid #003366; 
+    padding-bottom: 10px; 
+    margin-bottom: 20px; 
+}
+
+h1, h2 { color: #003366; margin: 0; }
+h1 { margin-bottom: 2rem; font-size: 2.2rem; }
+h2 { font-size: 1.8rem; }
+
+/* ==========================================================================
+   Interactive Controls & UI States
+   ========================================================================== */
+.controls { 
+    display: flex; 
+    gap: 12px; 
+    margin-bottom: 2rem; 
+    align-items: center; 
+    background: #f0f4f8; 
+    padding: 15px; 
+    border-radius: 8px; 
+}
+
+.controls-right { justify-content: flex-end; }
+
+select { 
+    flex-grow: 1; 
+    padding: 12px; 
+    border-radius: 6px; 
+    border: 1px solid #cbd5e0; 
+    font-size: 1rem; 
+    cursor: pointer; 
+}
+
+button { 
+    padding: 12px 24px; 
+    background-color: #003366; 
+    color: white; 
+    border: none; 
+    border-radius: 6px; 
+    cursor: pointer; 
+    font-weight: bold; 
+    transition: background 0.2s;
+}
+
+button:hover { background-color: #004a94; }
+button:disabled { background-color: #a0aec0; cursor: not-allowed; }
+
+.nav-links { display: flex; flex-direction: column; gap: 15px; }
+.nav-button { 
+    padding: 15px; 
+    background-color: #003366; 
+    color: white; 
+    text-decoration: none; 
+    border-radius: 8px; 
+    font-weight: bold; 
+    transition: background 0.2s; 
+}
+.nav-button:hover { background-color: #004a94; }
+
+/* ==========================================================================
+   Data Tables & Badges
+   ========================================================================== */
+.results-table { width: 100%; border-collapse: collapse; }
+.results-table th { 
+    text-align: left; 
+    padding: 12px; 
+    color: #4a5568; 
+    font-size: 0.75rem; 
+    text-transform: uppercase; 
+    border-bottom: 2px solid #edf2f7; 
+}
+.results-table td { padding: 16px 12px; border-bottom: 1px solid #edf2f7; vertical-align: top; }
+.valign-middle td { vertical-align: middle; }
+
+.station-name a { color: #003366; text-decoration: underline; font-weight: 700; font-size: 1.05rem; transition: color 0.2s; }
+.station-name a:hover { color: #2b6cb0; }
+
+.skytrain-time { font-weight: 800; color: #d32f2f; font-size: 1.2rem; }
+.bus-tag { background: #003366; color: white; padding: 4px 10px; border-radius: 4px; font-size: 0.9rem; font-weight: 700; }
+
+.update-container { text-align: right; }
+.update-label { font-size: 0.7rem; text-transform: uppercase; color: #999; display: block; margin-bottom: -2px; }
+#last-updated { color: #666; font-weight: 600; font-size: 1.1rem; font-variant-numeric: tabular-nums; }
+
+.wait-label { font-weight: 800; color: #d32f2f; font-size: 1.2rem; }
+.wait-label-dark { color: #2d3748; font-weight: 700; font-size: 1.1rem; }
+
+.arrival-list { display: flex; flex-direction: column; gap: 6px; }
+.time-entry { font-family: 'Courier New', monospace; font-size: 1.05rem; font-weight: 600; color: #718096; padding: 2px 6px; }
+.time-entry-dark { color: #2d3748; font-size: 1.1rem; }
+
+/* Status Highlights */
+.status-verified { color: #38a169; }
+.status-verified::after { content: " 🕒"; font-size: 1rem; vertical-align: middle; }
+.target-bus { background: #fff9c4; border-radius: 3px; color: #2d3748; border-left: 3px solid #fbc02d; }
+
+/* ==========================================================================
+   Error Handlers & Footers
+   ========================================================================== */
+#error-box { 
+    display: none; 
+    background-color: #fff5f5; 
+    border-left: 4px solid #f56565; 
+    color: #c53030; 
+    padding: 15px; 
+    border-radius: 6px; 
+    margin-bottom: 1.5rem; 
+    line-height: 1.5; 
+}
+#error-box a { color: #2b6cb0; text-decoration: underline; font-weight: bold; }
+
+.legend { 
+    margin-top: 20px; 
+    font-size: 0.85rem; 
+    color: #4a5568; 
+    display: flex; 
+    align-items: center; 
+    gap: 8px; 
+    border-top: 1px solid #edf2f7; 
+    padding-top: 15px; 
+}
+
+.footer { 
+    margin-top: 2.5rem; 
+    font-size: 0.8rem; 
+    color: #718096; 
+    line-height: 1.5; 
+    text-align: left; 
+    border-top: 1px solid #eee; 
+    padding-top: 15px; 
+}
