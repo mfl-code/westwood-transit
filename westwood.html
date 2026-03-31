@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Westwood Plateau to Millennium Line</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <main class="card">
+        <header class="header-row">
+            <h2>Westwood Plateau Bus Departures</h2>
+            <div class="update-container">
+                <span class="update-label">Last Updated</span>
+                <div id="last-updated">--:--:--</div>
+            </div>
+        </header>
+
+        <div id="error-box" role="alert"></div>
+
+        <section class="controls controls-right">
+            <button id="refresh-btn" onclick="updateUI()">Refresh Schedule</button>
+        </section>
+
+        <section id="display-area" style="display: none;">
+            <table class="results-table valign-middle">
+                <thead>
+                    <tr>
+                        <th>Stop Location</th>
+                        <th>Bus Route</th>
+                        <th>Arrival Time</th>
+                        <th>Wait Time</th>
+                    </tr>
+                </thead>
+                <tbody id="eta-list"></tbody>
+            </table>
+        </section>
+
+        <div class="legend">
+            <span>🕒 <strong>Timing Point:</strong> The bus cannot leave this stop or station until the scheduled time.</span>
+        </div>
+
+        <footer class="footer">
+            <p>
+                <strong>Disclaimer:</strong> This dashboard is an independent project by 
+                <strong>Michael Frankel-Lopez</strong> and is not affiliated with TransLink. 
+                Data is derived from static GTFS schedules and is provided for informational 
+                purposes only "as-is." Always consult 
+                <a href="https://www.translink.ca" target="_blank">TransLink.ca</a> 
+                for real-time service alerts.
+            </p>
+            <p>&copy; 2026 Michael Frankel-Lopez. All rights reserved.</p>
+        </footer>
+    </main>
+
+    <script src="transit.js"></script>
+    <script>
+        const refreshButton = document.getElementById('refresh-btn');
+
+        /**
+         * Orchestrates UI updates and fetches flattened upcoming departures.
+         */
+        async function updateUI() {
+            const errorBox = document.getElementById('error-box');
+            const etaList = document.getElementById('eta-list');
+            const currentTime = new Date();
+
+            // 1. Enter Loading State
+            refreshButton.disabled = true;
+            refreshButton.innerText = "Refreshing Data...";
+            errorBox.style.display = 'none';
+
+            try {
+                // 2. Fetch Processed Schedule Data
+                const arrivals = await getSchedulesForStops();
+
+                // 3. Render Results to DOM
+                document.getElementById('display-area').style.display = 'block';
+                etaList.innerHTML = '';
+                document.getElementById('last-updated').innerText = currentTime.toLocaleTimeString([], { hour12: false });
+
+                // Handle edge case where no buses are running
+                if (arrivals.length === 0) {
+                    etaList.innerHTML = `
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding: 2rem; color: #718096;">
+                                No buses scheduled in the next 90 minutes.
+                            </td>
+                        </tr>
+                    `;
+                }
+
+                arrivals.forEach(row => {
+                    const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
+                    const statusClass = row.status === 'verified' ? 'status-verified' : '';
+
+                    etaList.innerHTML += `<tr>
+                        <td class="station-name">
+                              <a href="${translinkLink}" target="_blank">${row.name}</a>
+                        </td>
+                        <td><span class="bus-tag">${row.busRoute}</span></td>
+                        <td><span class="time-entry ${statusClass}">${row.timeStr}</span></td>
+                        <td class="wait-label">${row.wait} min</td> 
+                    </tr>`;
+                });
+            } catch (errorMessage) {
+                // Handle CORS or Parsing Errors gracefully
+                errorBox.innerHTML = errorMessage;
+                errorBox.style.display = 'block';
+                document.getElementById('display-area').style.display = 'none';
+            } finally {
+                // 4. Restore UI State
+                refreshButton.disabled = false;
+                refreshButton.innerText = "Refresh Schedule";
+            }
+        }
+
+        // Auto-load data when the page opens
+        document.addEventListener("DOMContentLoaded", updateUI);
+    </script>
+</body>
+</html>
