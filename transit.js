@@ -6,18 +6,39 @@
  * It acts as an in-memory relational database to query precise bus arrival times.
  */
 
+/** * @type {string} 
+ * The proxy URL used to bypass CORS restrictions for fetching GTFS data. 
+ */
 const PROXY = "https://cors-anywhere.herokuapp.com/";
+
+/** * @type {string} 
+ * The complete URL to fetch TransLink's static GTFS ZIP file through the proxy. 
+ */
 const GTFS_URL = PROXY + "https://gtfs-static.translink.ca/gtfs/google_transit.zip";
+
+/** * @type {string} 
+ * The key under which the processed GTFS schedule data is stored in the browser's localStorage. 
+ */
 const CACHE_KEY = "translink_dynamic_cache";
+
+/** * @type {number} 
+ * The time-to-live for the cached schedule data, defined in milliseconds (1 hour). 
+ */
 const CACHE_DURATION = 60 * 60 * 1000; // 1 Hour in milliseconds
 
 // Global Constants
+/** * @type {number} 
+ * The time window (in minutes) to search forward for upcoming bus departures. 
+ */
 const BUS_ARRIVAL_WINDOW_MINS = 120; // Default window for looking up upcoming buses
 
 // ------------------------------------------------------------------------
 // Configuration & Target Data
 // ------------------------------------------------------------------------
 
+/** * @type {Array<{name: string, time: number}>} 
+ * List of Millennium Line SkyTrain stations and their relative travel times (in minutes) from VCC-Clark. 
+ */
 const stations = [
     { name: "VCC-Clark", time: 0 },
     { name: "Commercial-Broadway", time: 1 },
@@ -38,6 +59,9 @@ const stations = [
     { name: "Lafarge Lake-Douglas", time: 36 }
 ];
 
+/** * @type {Array<{name: string, bus: string, stop: string}>} 
+ * Bus transfer targets at major SkyTrain hubs, including route numbers and GTFS stop codes. 
+ */
 const milleniumTargets = [
     { name: "Moody Centre", bus: "183", stop: "61911" },
     { name: "Inlet Centre", bus: "184", stop: "59569" },
@@ -45,6 +69,9 @@ const milleniumTargets = [
     { name: "Lafarge Lake-Douglas", bus: "183", stop: "59565" }
 ];
 
+/** * @type {Array<{name: string, stop: string, line: string}>} 
+ * Specific neighborhood bus stop targets for the Westwood Plateau departures dashboard. 
+ */
 const westwoodTargets = [
     { name: "Across Bramblewood", stop: "53923", line: "183" },
     { name: "Bramblewood Park", stop: "58869", line: "183" },
@@ -60,7 +87,8 @@ const westwoodTargets = [
 /**
  * Calculates travel times from a starting SkyTrain station to specific transfer hubs
  * and fetches the subsequent bus connections.
- * @param {string} startStationName - The name of the boarding SkyTrain station.
+ * * @param {string} startStationName - The name of the boarding SkyTrain station.
+ * @param {Date} [referenceTime=new Date()] - The baseline time to calculate travel offsets from.
  * @returns {Promise<Array>} Array of formatted HTML arrival data for the UI.
  */
 async function getSchedulesForStation(startStationName, referenceTime = new Date()) {
@@ -91,13 +119,8 @@ async function getSchedulesForStation(startStationName, referenceTime = new Date
 
 /**
  * Fetches and flattens all immediate departures for the Westwood Plateau specific stops.
- * @param {Date} referenceTime - The baseline time to calculate waits from.
- * @returns {Promise<Array>} Chronologically sorted array of all upcoming bus arrivals.
- */
-/**
- * Fetches and flattens all immediate departures for the Westwood Plateau specific stops.
  * Refactored to use the central getBusArrivals logic.
- * @param {Date} referenceTime - The baseline time to calculate waits from.
+ * * @param {Date} [referenceTime=new Date()] - The baseline time to calculate waits from.
  * @returns {Promise<Array>} Chronologically sorted array of all upcoming bus arrivals.
  */
 async function getSchedulesForStops(referenceTime = new Date()) {
@@ -122,7 +145,11 @@ async function getSchedulesForStops(referenceTime = new Date()) {
 // ------------------------------------------------------------------------
 
 /**
- * Core processor for grouped bus arrivals.
+ * Core processor for grouped bus arrivals. Compares requested times against the cached schedule 
+ * and generates HTML output fragments for the UI.
+ * * @param {Array<{name: string, line: string, stop: string, startTime: Date, period: number}>} requestArray 
+ * - An array of configuration objects dictating which stops and routes to query.
+ * @returns {Promise<Array>} An array of processed arrival objects containing timing, status, and HTML strings.
  */
 async function getBusArrivals(requestArray) {
     let scheduleData = getCachedSchedule();
@@ -181,6 +208,9 @@ async function getBusArrivals(requestArray) {
 /**
  * Downloads, unzips, and parses the TransLink GTFS archive.
  * Filters a massive dataset down to only the requested routes and stops for optimal local storage.
+ * Automatically aggregates targets from both `milleniumTargets` and `westwoodTargets`.
+ * * @returns {Promise<Object>} A dictionary of parsed schedules keyed by stop code and route.
+ * @throws {string|Error} Throws an error if CORS access is denied or if the server response fails.
  */
 async function refreshGTFSCache() {
     try {
@@ -295,7 +325,9 @@ async function refreshGTFSCache() {
 // ------------------------------------------------------------------------
 
 /**
- * Converts raw CSV text into an array of JavaScript objects.
+ * Converts raw CSV text into an array of JavaScript objects mapped to the CSV headers.
+ * * @param {string} text - The raw string contents of the CSV file.
+ * @returns {Array<Object>} An array of objects representing the rows.
  */
 function parseCSV(text) {
     const lines = text.split(/\r?\n/);
@@ -312,7 +344,9 @@ function parseCSV(text) {
 
 /**
  * Parses GTFS formatted time (HH:MM:SS) into a standard JS Date object.
- * Correctly handles over-midnight GTFS times (e.g., "25:30:00" = 1:30 AM next day).
+ * Correctly handles over-midnight GTFS times (e.g., "25:30:00" translates to 1:30 AM the next day).
+ * * @param {string} timeStr - The time string extracted from the GTFS feed.
+ * @returns {Date} A JavaScript Date object set to the corresponding local time.
  */
 function parseTransitTime(timeStr) {
     let [hours, minutes, seconds] = timeStr.split(':').map(Number);
@@ -328,7 +362,8 @@ function parseTransitTime(timeStr) {
 }
 
 /**
- * Retrieves and validates the cache duration.
+ * Retrieves and validates the cache duration from localStorage.
+ * * @returns {Object|null} The parsed JSON schedule object, or null if empty/expired.
  */
 function getCachedSchedule() {
     const cachedData = localStorage.getItem(CACHE_KEY);
