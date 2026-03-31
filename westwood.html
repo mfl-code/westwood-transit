@@ -96,13 +96,13 @@
                     const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
                     const statusClass = row.status === 'verified' ? 'status-verified' : '';
 
-                    etaList.innerHTML += `<tr>
-                        <td class="station-name">
+                   etaList.innerHTML += `<tr>
+                        <td class="station-name" data-label="Stop Location">
                               <a href="${translinkLink}" target="_blank">${row.name}</a>
                         </td>
-                        <td><span class="bus-tag">${row.busRoute}</span></td>
-                        <td><span class="time-entry ${statusClass}">${row.timeStr}</span></td>
-                        <td class="wait-label">${row.wait} min</td> 
+                        <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
+                        <td data-label="Arrival Time"><span class="time-entry ${statusClass}">${row.timeStr}</span></td>
+                        <td class="wait-label" data-label="Wait Time">${row.wait} min</td> 
                     </tr>`;
                 });
             } catch (errorMessage) {
