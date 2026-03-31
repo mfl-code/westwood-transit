@@ -230,6 +230,7 @@ button:disabled { background-color: #a0aec0; cursor: not-allowed; }
 .status-verified { color: #38a169; }
 .status-verified::after { content: " 🕒"; font-size: 1rem; vertical-align: middle; }
 .target-bus { background: #fff9c4; border-radius: 3px; color: #2d3748; border-left: 3px solid #fbc02d; }
+.legend-item.cancelled::before { background-color: #e53e3e; content: "—"; color: white; text-align: center; line-height: 12px; }
 
 /* ==========================================================================
    Error Handlers & Footers
@@ -266,3 +267,36 @@ button:disabled { background-color: #a0aec0; cursor: not-allowed; }
     border-top: 1px solid #eee; 
     padding-top: 15px; 
 }
+
+* ==========================================================================
+   Real-time status indicators
+   ========================================================================== */
+.status-cancelled {
+    color: #e53e3e;
+    text-decoration: line-through;
+    opacity: 0.7;
+}
+
+.status-updated::after {
+    content: " 📶";
+    font-size: 0.9em;
+    vertical-align: middle;
+}
+
+.api-warning {
+    background-color: #fff5f5;
+    border: 1px solid #feb2b2;
+    color: #c53030;
+    padding: 10px;
+    margin-bottom: 15px;
+    border-radius: 6px;
+    text-align: center;
+    font-size: 0.9rem;
+}
+
+.api-warning a {
+    color: #c53030;
+    text-decoration: underline;
+    font-weight: bold;
+}
+

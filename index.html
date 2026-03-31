@@ -5,9 +5,40 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Transit Dashboard Hub</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <script src="transit.js"></script>
+    <script>
+
+	/**
+         * Saves the API key to a cookie and updates the UI status.
+         */
+        function saveAndCheckApiKey() {
+            const key = document.getElementById('api-key-input').value.trim();
+            saveApiKey(key);
+            checkApiKey();
+        }
+
+        /**
+         * Checks if a key exists and updates the UI status.
+         */
+        function checkApiKey() {
+            const key = getApiKey();
+            const msg = document.getElementById('api-status-msg');
+            const input = document.getElementById('api-key-input');
+            if (key) {
+                msg.innerText = "✓ API Key Saved";
+                msg.style.color = "green";
+                input.value = key;
+            } else {
+                msg.innerText = "⚠ No API Key found. Real-time updates disabled.";
+                msg.style.color = "orange";
+            }
+        }
+
+        document.addEventListener("DOMContentLoaded", checkApiKey);
+    </script>
 </head>
 <body class="hub-layout">
-
     <main class="card hub-card">
         <h1>Transit Dashboard</h1>
         
@@ -15,6 +46,18 @@
             <a href="millenium.html" class="nav-button">Millennium Line Hub</a>
             <a href="westwood.html" class="nav-button">Westwood Plateau Departures</a>
         </nav>
+
+        <section class="api-key-management">
+            <h3>Real-Time Data Configuration</h3>
+            <p>To see live bus delays and cancellations, you need a TransLink API Key. 
+               <a href="https://www.translink.ca/about-us/doing-business-with-translink/app-developer-resources/register" target="_blank">Register here</a> 
+               to get one for free.</p>
+            <div class="controls">
+                <input type="password" id="api-key-input" placeholder="Enter TransLink API Key" aria-label="API Key">
+                <button id="save-key-btn" onclick="saveAndCheckApiKey()">Update API Key</button>
+            </div>
+            <div id="api-status-msg" style="margin-top: 10px; font-weight: bold;"></div>
+        </section>
 
         <footer class="footer">
             <p>

@@ -6,6 +6,74 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Westwood Plateau to Millennium Line</title>
     <link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <script src="transit.js"></script>
+    <script>
+        /**
+         * Orchestrates UI updates and fetches flattened upcoming departures.
+         */
+        async function updateUI() {
+            const refreshButton = document.getElementById('refresh-btn'); 
+            const errorBox = document.getElementById('error-box');
+            const etaList = document.getElementById('eta-list');
+            const currentTime = new Date();
+
+            // 1. Enter Loading State
+            refreshButton.disabled = true;
+            refreshButton.innerText = "Refreshing Data...";
+            errorBox.style.display = 'none';
+
+            try {
+                // 2. Fetch Processed Schedule Data
+                const arrivals = await getSchedulesForStops();
+
+                // 3. Render Results to DOM
+                document.getElementById('display-area').style.display = 'block';
+                etaList.innerHTML = '';
+                document.getElementById('last-updated').innerText = currentTime.toLocaleTimeString([], { hour12: false });
+
+                // Handle edge case where no buses are running
+                if (arrivals.length === 0) {
+                    etaList.innerHTML = `
+                        <tr>
+                            <td colspan="4" style="text-align:center; padding: 2rem; color: #718096;">
+                                No buses scheduled in the next 90 minutes.
+                            </td>
+                        </tr>
+                    `;
+                }
+
+                arrivals.forEach(row => {
+                    const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
+                    let statusClass = '';
+                    if (row.status === 'verified') statusClass = 'status-verified';
+                    if (row.status === 'updated') statusClass = 'status-updated';
+                    if (row.status === 'cancelled') statusClass = 'status-cancelled';
+
+                   etaList.innerHTML += `<tr>
+                        <td class="station-name" data-label="Stop Location">
+                              <a href="${translinkLink}" target="_blank">${row.name}</a>
+                        </td>
+                        <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
+                        <td data-label="Arrival Time"><span class="time-entry ${statusClass}">${row.timeStr}</span></td>
+                        <td class="wait-label" data-label="Wait Time">${row.wait} min</td> 
+                    </tr>`;
+                });
+            } catch (errorMessage) {
+                // Handle CORS or Parsing Errors gracefully
+                errorBox.innerHTML = errorMessage;
+                errorBox.style.display = 'block';
+                document.getElementById('display-area').style.display = 'none';
+            } finally {
+                // 4. Restore UI State
+                refreshButton.disabled = false;
+                refreshButton.innerText = "Refresh Schedule";
+            }
+        }
+
+        // Auto-load data when the page opens
+        document.addEventListener("DOMContentLoaded", updateUI);
+    </script>
 </head>
 <body>
 
@@ -39,7 +107,9 @@
         </section>
 
         <div class="legend">
-            <span>🕒 <strong>Timing Point:</strong> The bus cannot leave this stop or station until the scheduled time.</span>
+            <div class="legend-item"><span class="status-verified">●</span> Verified Time</div>
+            <div class="legend-item"><span>📶</span> Real-time Update</div>
+            <div class="legend-item"><span style="color: #e53e3e; text-decoration: line-through;">00:00</span> Cancelled</div>
         </div>
 
         <footer class="footer">
@@ -54,71 +124,5 @@
             <p>&copy; 2026 Michael Frankel-Lopez. All rights reserved.</p>
         </footer>
     </main>
-
-    <script src="transit.js"></script>
-    <script>
-        const refreshButton = document.getElementById('refresh-btn');
-
-        /**
-         * Orchestrates UI updates and fetches flattened upcoming departures.
-         */
-        async function updateUI() {
-            const errorBox = document.getElementById('error-box');
-            const etaList = document.getElementById('eta-list');
-            const currentTime = new Date();
-
-            // 1. Enter Loading State
-            refreshButton.disabled = true;
-            refreshButton.innerText = "Refreshing Data...";
-            errorBox.style.display = 'none';
-
-            try {
-                // 2. Fetch Processed Schedule Data
-                const arrivals = await getSchedulesForStops();
-
-                // 3. Render Results to DOM
-                document.getElementById('display-area').style.display = 'block';
-                etaList.innerHTML = '';
-                document.getElementById('last-updated').innerText = currentTime.toLocaleTimeString([], { hour12: false });
-
-                // Handle edge case where no buses are running
-                if (arrivals.length === 0) {
-                    etaList.innerHTML = `
-                        <tr>
-                            <td colspan="4" style="text-align:center; padding: 2rem; color: #718096;">
-                                No buses scheduled in the next 90 minutes.
-                            </td>
-                        </tr>
-                    `;
-                }
-
-                arrivals.forEach(row => {
-                    const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
-                    const statusClass = row.status === 'verified' ? 'status-verified' : '';
-
-                   etaList.innerHTML += `<tr>
-                        <td class="station-name" data-label="Stop Location">
-                              <a href="${translinkLink}" target="_blank">${row.name}</a>
-                        </td>
-                        <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
-                        <td data-label="Arrival Time"><span class="time-entry ${statusClass}">${row.timeStr}</span></td>
-                        <td class="wait-label" data-label="Wait Time">${row.wait} min</td> 
-                    </tr>`;
-                });
-            } catch (errorMessage) {
-                // Handle CORS or Parsing Errors gracefully
-                errorBox.innerHTML = errorMessage;
-                errorBox.style.display = 'block';
-                document.getElementById('display-area').style.display = 'none';
-            } finally {
-                // 4. Restore UI State
-                refreshButton.disabled = false;
-                refreshButton.innerText = "Refresh Schedule";
-            }
-        }
-
-        // Auto-load data when the page opens
-        document.addEventListener("DOMContentLoaded", updateUI);
-    </script>
 </body>
 </html>

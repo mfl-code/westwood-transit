@@ -6,6 +6,12 @@
  * It acts as an in-memory relational database to query precise bus arrival times.
  */
 
+/**
+ * Global variable to store the loaded Protobuf root.
+ * This acts as a singleton to ensure we only parse the schema once.
+ */
+let GTFS_ROOT = null;
+
 /** @type {string} 
  * The proxy URL used to bypass CORS restrictions for fetching GTFS data. 
  */
@@ -160,15 +166,52 @@ async function getBusArrivals(requestArray) {
         scheduleData = await refreshGTFSCache();
     }
 
+    const entities = await fetchRealTimeData();
+
     return requestArray.map(request => {
         const rawArrivals = (scheduleData[request.stop] && scheduleData[request.stop][request.line]) || [];
         const windowEnd = new Date(request.startTime.getTime() + (request.period * 60000));
 
         const processedArrivals = rawArrivals
-            .map(entry => ({
-                time: parseTransitTime(entry.time),
-                status: entry.isValidated ? 'verified' : 'scheduled'
-            }))
+            .map(entry => {
+                let arrivalTime = parseTransitTime(entry.time);
+                let status = entry.isValidated ? 'verified' : 'scheduled';
+                
+                // Check if there is a live update for this specific Trip ID
+                const update = entities?.find(entity => {
+                    const trip = entity.tripUpdate?.trip;
+                    if (!trip) return false;
+
+                    // 1. Match by Trip ID (most reliable)
+                    if (trip.tripId && trip.tripId === entry.tripId) return true;
+
+                    // 2. Match by Trip Descriptor (for unscheduled/added trips)
+                    const entryStartTime = entry.time.split(':').slice(0,2).join(':'); // HH:MM
+                    if (trip.routeId === entry.routeId && trip.startTime === entryStartTime) {
+                       return true;
+                    }
+                    return false;
+                })?.tripUpdate;
+
+                if (update) {
+                    if (update.trip.scheduleRelationship === 'CANCELED') {
+                        status = 'cancelled';
+                    } else {
+                        // Find specific stop delay
+                        const stopUpdate = update.stopTimeUpdate?.find(st => 
+                            st.stopId === entry.stopId || st.stopSequence === entry.stopSequence
+                        );
+                        if (stopUpdate?.arrival?.delay) {
+                            arrivalTime = new Date(arrivalTime.getTime() + (stopUpdate.arrival.delay * 1000));
+                            status = 'updated';
+                        }
+                    }
+                }
+
+                return { time: arrivalTime, status: status };
+            })
+
+            // Filter only for arrivals within our time window (ignoring cancelled ones for the "next bus" logic)
             .filter(arrival => arrival.time >= request.startTime && arrival.time <= windowEnd)
             .sort((a, b) => a.time - b.time);
 
@@ -181,8 +224,11 @@ async function getBusArrivals(requestArray) {
         } else {
             processedArrivals.slice(0, 5).forEach(arrival => {
                 const timeStr = arrival.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
-                const statusClass = arrival.status === 'verified' ? 'status-verified' : '';
                 const catchableClass = (arrival === firstCatchable) ? 'target-bus' : '';
+                let statusClass = '';
+                if (arrival.status === 'verified') statusClass = 'status-verified';
+                if (arrival.status === 'updated') statusClass = 'status-updated';
+                if (arrival.status === 'cancelled') statusClass = 'status-cancelled'
                 htmlFragment += `<span class="time-entry ${statusClass} ${catchableClass}">${timeStr}</span>`;
             });
         }
@@ -285,9 +331,10 @@ async function refreshGTFSCache() {
         const stopTimesLines = stopTimesText.split(/\r?\n/);
         const stHeaders = stopTimesLines[0].split(',').map(h => h.replace(/"/g, '').trim());
 
-        const tripIdx = stHeaders.indexOf("trip_id");
-        const stopIdx = stHeaders.indexOf("stop_id");
-        const arrivalIdx = stHeaders.indexOf("arrival_time");
+        const tripIdx      = stHeaders.indexOf("trip_id");
+        const stopIdx      = stHeaders.indexOf("stop_id");
+        const routeIdx     = stHeaders.indexOf("route_id")
+        const arrivalIdx   = stHeaders.indexOf("arrival_time");
         const timepointIdx = stHeaders.indexOf("timepoint");
 
         const finalSchedule = {};
@@ -306,7 +353,10 @@ async function refreshGTFSCache() {
                 
                 finalSchedule[stopCode][routeShortName].push({
                     time: row[arrivalIdx],
-                    isValidated: row[timepointIdx] === '1' // Indicates a strict timing point
+                    isValidated: row[timepointIdx] === '1', // Indicates a strict timing point,
+                    tripId: row[tripIdx],
+                    stopId: row[stopIdx],
+                    routeId: row[routeIdx]
                 });
             }
         }
@@ -374,4 +424,91 @@ function getCachedSchedule() {
     if (Date.now() - parsedData.timestamp > CACHE_DURATION) return null;
     
     return parsedData.schedule;
+}
+
+/**
+ * Helper function to retrieve the FeedMessage type.
+ * Uses an async "lazy-load" pattern to fetch the schema only when needed,
+ * then caches it for all subsequent calls.
+ */
+async function getGtfsType() {
+    if (!GTFS_ROOT) {
+        // Optimization: Load the schema definition from the official Google repository
+        // Doing this once saves a network request and CPU cycles on every refresh.
+        GTFS_ROOT = await protobuf.load("https://raw.githubusercontent.com/google/transit/master/gtfs-realtime/proto/gtfs-realtime.proto");
+    }
+    // Return the specific message type we need to decode TransLink's data
+    return GTFS_ROOT.lookupType("transit_realtime.FeedMessage");
+}
+
+/**
+ * Fetches and decodes the GTFS Realtime Protobuf feed.
+ */
+async function fetchRealTimeData() {
+    const apiKey = getApiKey();
+    if (!apiKey) return null;
+
+    const RT_URL = `${PROXY}https://gtfsapi.translink.ca/v3/gtfsrealtime?apikey=${apiKey}`;
+
+    try {
+        const response = await fetch(RT_URL);
+        if (!response.ok) throw new Error("Invalid API Key");
+
+        // TransLink returns binary data (ArrayBuffer), not JSON
+        const buffer = await response.arrayBuffer();
+        
+        // Optimization: Use the cached schema type instead of calling protobuf.load() again
+        const FeedMessage = await getGtfsType();
+        
+        // Decode the binary buffer into a Protobuf Message object
+        const message = FeedMessage.decode(new Uint8Array(buffer));
+        
+        // Convert the Message object into a plain JavaScript object for easier manipulation
+        // We convert Enums and Longs to Strings to avoid precision issues and simplify matching
+        const object = FeedMessage.toObject(message, { enums: String, longs: String });
+
+        return object.entity || [];
+    } catch (e) {
+        console.error("Protobuf Error:", e);
+        showApiWarning();
+        return null;
+    }
+}
+
+/**
+ * Displays a warning if the API key is missing or failing.
+ */
+function showApiWarning() {
+    const errorBox = document.getElementById('error-box');
+    if (errorBox) {
+        errorBox.innerHTML = `
+            <div class="api-warning">
+                Real-time data is currently unavailable or bad. 
+                <a href="index.html">Update your API Key here</a>.
+            </div>`;
+        errorBox.style.display = 'block';
+    }
+}
+
+/**
+ * Saves the API key to a cookie valid for 365 days.
+ * @param {string} key - TransLink API Key.
+ */
+function saveApiKey(key) {
+    const d = new Date();
+    d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000));
+    document.cookie = `translink_api_key=${key};expires=${d.toUTCString()};path=/`;
+}
+
+/**
+ * Gets the API key from the cookie.
+ */
+function getApiKey() {
+    const name = "translink_api_key=";
+    const ca = document.cookie.split(';');
+    for(let i = 0; i < ca.length; i++) {
+        let c = ca[i].trim();
+        if (c.indexOf(name) == 0) return c.substring(name.length, c.length);
+    }
+    return "";
 }

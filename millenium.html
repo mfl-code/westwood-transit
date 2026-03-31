@@ -6,6 +6,70 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Millennium Line to Westwood Plateau</title>
     <link rel="stylesheet" href="style.css">
+    <script src="https://cdn.jsdelivr.net/npm/protobufjs@7.X.X/dist/protobuf.min.js"></script>
+    <script src="transit.js"></script>
+    <script>
+         /**
+         * Orchestrates UI updates and initiates the GTFS parsing flow.
+         */
+        async function updateUI() {
+            const refreshButton = document.getElementById('refresh-btn');
+            if (!stationDropdown.value) return;
+
+            const errorBox = document.getElementById('error-box');
+            const etaList = document.getElementById('eta-list');
+            const currentTime = new Date();
+
+            // 1. Enter Loading State to prevent multiple overlapping downloads
+            refreshButton.disabled = true;
+            stationDropdown.disabled = true;
+            refreshButton.innerText = "Refreshing Data...";
+            errorBox.style.display = 'none';
+
+            try {
+                // 2. Fetch Processed Schedule Data
+                const results = await getSchedulesForStation(stationDropdown.value);
+                results.sort((a, b) => a.sortKey - b.sortKey);
+
+                // 3. Render Results to DOM
+                document.getElementById('display-area').style.display = 'block';
+                etaList.innerHTML = '';
+                document.getElementById('last-updated').innerText = currentTime.toLocaleTimeString([], { hour12: false });
+
+                results.forEach(row => {
+                    let statusClass = '';
+                    if (row.status === 'verified') statusClass = 'status-verified';
+                    if (row.status === 'updated') statusClass = 'status-updated';
+                    if (row.status === 'cancelled') statusClass = 'status-cancelled';
+
+                    const waitDisplay = row.wait === -1 ? '--' : `${row.wait} min`;
+                    const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
+
+                    etaList.innerHTML += `
+                        <tr>
+                            <td class="station-name" data-label="Transfer Hub">
+                                <a href="${translinkLink}" target="_blank" rel="noopener noreferrer">${row.name}</a>
+                            </td>
+                            <td class="skytrain-time" data-label="SkyTrain Arrival">${row.startTimeStr}</td>
+                            <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
+                            <td class="wait-label" data-label="Wait Time">${waitDisplay}</td>
+                            <td data-label="Upcoming Arrivals">${row.busHtml}</td>
+                        </tr>
+                    `;
+                });
+            } catch (errorMessage) {
+                // Handle CORS or Parsing Errors gracefully
+                errorBox.innerHTML = errorMessage;
+                errorBox.style.display = 'block';
+                document.getElementById('display-area').style.display = 'none';
+            } finally {
+                // 4. Restore UI State
+                refreshButton.disabled = false;
+                stationDropdown.disabled = false;
+                refreshButton.innerText = "Refresh";
+            }
+        }
+    </script>
 </head>
 <body>
 
@@ -43,7 +107,9 @@
         </section>
 
         <div class="legend">
-            <span>🕒 <strong>Timing Point:</strong> The bus cannot leave this stop or station until the scheduled time.</span>
+            <div class="legend-item"><span class="status-verified">●</span> Verified Time</div>
+            <div class="legend-item"><span>📶</span> Real-time Update</div>
+            <div class="legend-item"><span style="color: #e53e3e; text-decoration: line-through;">00:00</span> Cancelled</div>
         </div>
 
         <footer class="footer">
@@ -58,12 +124,8 @@
             <p>&copy; 2026 Michael Frankel-Lopez. All rights reserved.</p>
         </footer>
     </main>
-
-    <script src="transit.js"></script>
     <script>
-        const stationDropdown = document.getElementById('station-select');
-        const refreshButton = document.getElementById('refresh-btn');
-
+        const stationDropdown = document.getElementById('station-select'); 
         // Populate dropdown from imported stations array
         stations.forEach(station => {
             let option = document.createElement('option');
@@ -71,61 +133,6 @@
             option.innerHTML = station.name;
             stationDropdown.appendChild(option);
         });
-
-        /**
-         * Orchestrates UI updates and initiates the GTFS parsing flow.
-         */
-        async function updateUI() {
-            if (!stationDropdown.value) return;
-
-            const errorBox = document.getElementById('error-box');
-            const etaList = document.getElementById('eta-list');
-            const currentTime = new Date();
-
-            // 1. Enter Loading State to prevent multiple overlapping downloads
-            refreshButton.disabled = true;
-            stationDropdown.disabled = true;
-            refreshButton.innerText = "Refreshing Data...";
-            errorBox.style.display = 'none';
-
-            try {
-                // 2. Fetch Processed Schedule Data
-                const results = await getSchedulesForStation(stationDropdown.value);
-                results.sort((a, b) => a.sortKey - b.sortKey);
-
-                // 3. Render Results to DOM
-                document.getElementById('display-area').style.display = 'block';
-                etaList.innerHTML = '';
-                document.getElementById('last-updated').innerText = currentTime.toLocaleTimeString([], { hour12: false });
-
-                results.forEach(row => {
-                    const waitDisplay = row.wait === -1 ? '--' : `${row.wait} min`;
-                    const translinkLink = `https://www.translink.ca/schedules-and-maps/stop/${row.stopCode}/schedule?pageSize=5`;
-
-                    etaList.innerHTML += `
-                        <tr>
-                            <td class="station-name" data-label="Transfer Hub">
-                                <a href="${translinkLink}" target="_blank" rel="noopener noreferrer">${row.name}</a>
-                            </td>
-                            <td class="skytrain-time" data-label="SkyTrain Arrival">${row.startTimeStr}</td>
-                            <td data-label="Bus Route"><span class="bus-tag">${row.busRoute}</span></td>
-                            <td class="wait-label" data-label="Wait Time">${waitDisplay}</td>
-                            <td data-label="Upcoming Arrivals">${row.busHtml}</td>
-                        </tr>
-                    `;
-                });
-            } catch (errorMessage) {
-                // Handle CORS or Parsing Errors gracefully
-                errorBox.innerHTML = errorMessage;
-                errorBox.style.display = 'block';
-                document.getElementById('display-area').style.display = 'none';
-            } finally {
-                // 4. Restore UI State
-                refreshButton.disabled = false;
-                stationDropdown.disabled = false;
-                refreshButton.innerText = "Refresh";
-            }
-        }
     </script>
 </body>
 </html>
