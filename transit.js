@@ -211,8 +211,8 @@ async function getBusArrivals(requestArray) {
                         const stopUpdate = update.stopTimeUpdate?.find(st => 
                             st.stopId === entry.stopId || st.stopSequence === entry.stopSequence
                         );
-                        if (stopUpdate?.arrival?.delay) {
-                            arrivalTime = new Date(arrivalTime.getTime() + (stopUpdate.arrival.delay * 1000));
+                        if (stopUpdate?.arrival?.time) {
+                            arrivalTime = new Date(stopUpdate.arrival.time * 1000);
                             status = 'updated';
                         }
                     }
