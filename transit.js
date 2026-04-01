@@ -1,14 +1,15 @@
 /**
- * transit.js - Dynamic GTFS Engine
- * © 2026 Michael Frankel-Lopez. All rights reserved.
- * Description: Client-side engine that downloads, extracts, and joins 
- * TransLink's static GTFS (General Transit Feed Specification) ZIP file.
- * It acts as an in-memory relational database to query precise bus arrival times.
+ * @file transit.js
+ * @description Core client-side engine for the TransLink GTFS Dashboard.
+ * Handles UI orchestration, real-time Protobuf decoding, and Web Worker management.
+ * @author Michael Frankel-Lopez
+ * @copyright 2026
  */
 
 /**
  * Global variable to store the loaded Protobuf root.
- * This acts as a singleton to ensure we only parse the schema once.
+ * Acts as a singleton to ensure the schema is only parsed once.
+ * @type {protobuf.Root|null}
  */
 let GTFS_ROOT = null;
 
@@ -192,7 +193,7 @@ async function getBusArrivals(requestArray) {
         const processedArrivals = rawArrivals
             .map(entry => {
                 let arrivalTime = parseTransitTime(entry.time);
-                let status = entry.isValidated ? 'verified' : 'scheduled';
+                let status = entry.isTimePoint ? 'timepoint' : 'scheduled';
                 
                 // Check if there is a live update for this specific Trip ID
                 const update = realTimeEntries?.find(entity => {
@@ -243,7 +244,7 @@ async function getBusArrivals(requestArray) {
                 const timeStr = arrival.time.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', hour12: false });
                 const catchableClass = (arrival === firstCatchable) ? 'target-bus' : '';
                 let statusClass = '';
-                if (arrival.status === 'verified') statusClass = 'status-verified';
+                if (arrival.status === 'timepoint') statusClass = 'status-timepoint';
                 if (arrival.status === 'updated') statusClass = 'status-updated';
                 if (arrival.status === 'cancelled') statusClass = 'status-cancelled';
                 htmlFragment += `<span class="time-entry ${statusClass} ${catchableClass}">${timeStr}</span>`;
@@ -273,141 +274,60 @@ async function getBusArrivals(requestArray) {
  * Filters a massive dataset down to only the requested routes and stops for optimal local storage.
  * Automatically aggregates targets from both `milleniumTargets` and `westwoodTargets`.
  * @returns {Promise<Object>} A dictionary of parsed schedules keyed by stop code and route.
- * @throws {string|Error} Throws an error if CORS access is denied or if the server response fails.
+ * @throws {string} Throws an error if CORS access is denied or if the server response fails.
+ */
+/**
+ * Initiates the Web Worker to download and parse the GTFS archive.
  */
 async function refreshGTFSCache() {
-    try {
-        // Step 1: Collect all unique bus lines from both target sets
-        const allBusLines = [
-            ...new Set([
-                ...milleniumTargets.map(t => t.bus),
-                ...westwoodTargets.map(t => t.line)
-            ])
-        ];
+    return new Promise((resolve, reject) => {
+        // Collect required parameters to pass to the worker
+        const allBusLines = [...new Set([...milleniumTargets.map(t => t.bus), ...westwoodTargets.map(t => t.line)])];
+        const allStopCodes = [...new Set([...milleniumTargets.map(t => t.stop), ...westwoodTargets.map(t => t.stop)])];
 
-        // Collect all unique stop codes from both target sets
-        const allStopCodes = [
-            ...new Set([
-                ...milleniumTargets.map(t => t.stop),
-                ...westwoodTargets.map(t => t.stop)
-            ])
-        ];
+        // Instantiate the worker
+        const worker = new Worker('gtfs-worker.js');
 
-        // Step 2: Fetch and extract the ZIP archive
-        const response = await fetch(GTFS_URL);
-        if (response.status === 403) {
-            throw CORS_ERROR_MESSAGE;
-        }
-        if (!response.ok) throw `Server Error: ${response.statusText}`;
+        // Listen for the worker to finish
+        worker.onmessage = function(e) {
+			try {
+	            if (e.data.success) {
+	                const finalSchedule = e.data.schedule;
+	                // Cache the optimized dataset in the main thread
+	                localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), schedule: finalSchedule }));
+	                resolve(finalSchedule);
+	            } else {
+	                if (e.data.error === "CORS_403") {
+						showCorsProxyWarning();
+						resolve({});
+	                } else {
+						reject(e.data.error);
+	                }
+	            }
+			}  finally {
+		        worker.terminate();
+		    }
+        };
 
-        const blob = await response.blob();
-        const zip = await JSZip.loadAsync(blob);
+        // Handle catastrophic worker failures
+        worker.onerror = function(error) {
+            console.error("Worker Error:", error);
+            reject("A critical error occurred while processing transit data.");
+            worker.terminate();
+        };
 
-        // Calculate "Today" context for schedules
-        const now = new Date();
-        const todayStr = now.toISOString().slice(0, 10).replace(/-/g, '');
-        const days = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
-        const dayName = days[now.getDay()];
-
-        // Step 3: Determine active Service IDs for today (handling exceptions/holidays)
-        const calendar = parseCSV(await zip.file("calendar.txt").async("string"));
-        const calendarDates = parseCSV(await zip.file("calendar_dates.txt").async("string"));
-        
-        let activeServices = new Set(
-            calendar
-                .filter(row => row[dayName] === '1' && todayStr >= row.start_date && todayStr <= row.end_date)
-                .map(row => row.service_id)
-        );
-        
-        calendarDates.forEach(row => {
-            if (row.date === todayStr) {
-                if (row.exception_type === '1') activeServices.add(row.service_id); // Added service
-                if (row.exception_type === '2') activeServices.delete(row.service_id); // Removed service
-            }
+        // Start the worker and pass the necessary configuration
+        worker.postMessage({
+            url: GTFS_URL,
+            allBusLines: allBusLines,
+            allStopCodes: allStopCodes
         });
-
-        // Step 4: Map textual route names and stop codes to their internal GTFS IDs
-        const routes = parseCSV(await zip.file("routes.txt").async("string"));
-        const routeIdMap = routes
-            .filter(r => allBusLines.includes(r.route_short_name))
-            .reduce((acc, r) => { acc[r.route_id] = r.route_short_name; return acc; }, {});
-
-        const stops = parseCSV(await zip.file("stops.txt").async("string"));
-        const stopIdMap = stops
-            .filter(s => allStopCodes.includes(s.stop_code))
-            .reduce((acc, s) => { acc[s.stop_id] = s.stop_code; return acc; }, {});
-
-        // Step 5: Find specific Trip IDs running today for our targeted routes
-        const trips = parseCSV(await zip.file("trips.txt").async("string"));
-        const validTrips = trips
-            .filter(t => routeIdMap[t.route_id] && activeServices.has(t.service_id))
-            .reduce((acc, t) => { acc[t.trip_id] = routeIdMap[t.route_id]; return acc; }, {});
-
-        // Step 5: Extract final arrival times mapping only to our valid trips and stops
-        const stopTimesText = await zip.file("stop_times.txt").async("string");
-        const stopTimesLines = stopTimesText.split(/\r?\n/);
-        const stHeaders = stopTimesLines[0].split(',').map(h => h.replace(/"/g, '').trim());
-
-        const tripIdx      = stHeaders.indexOf("trip_id");
-        const stopIdx      = stHeaders.indexOf("stop_id");
-        const routeIdx     = stHeaders.indexOf("route_id");
-        const arrivalIdx   = stHeaders.indexOf("arrival_time");
-        const timepointIdx = stHeaders.indexOf("timepoint");
-
-        const finalSchedule = {};
-        
-        // Loop through all stop times, keeping only the intersected data
-        for (let i = 1; i < stopTimesLines.length; i++) {
-            const row = stopTimesLines[i].split(',').map(v => v.replace(/"/g, '').trim());
-            if (row.length < stHeaders.length) continue;
-
-            const routeShortName = validTrips[row[tripIdx]];
-            const stopCode = stopIdMap[row[stopIdx]];
-
-            if (routeShortName && stopCode) {
-                if (!finalSchedule[stopCode]) finalSchedule[stopCode] = {};
-                if (!finalSchedule[stopCode][routeShortName]) finalSchedule[stopCode][routeShortName] = [];
-                
-                finalSchedule[stopCode][routeShortName].push({
-                    time: row[arrivalIdx],
-                    isValidated: row[timepointIdx] === '1', // Indicates a strict timing point,
-                    tripId: row[tripIdx],
-                    stopId: row[stopIdx],
-                    routeId: row[routeIdx]
-                });
-            }
-        }
-
-        // Cache the optimized dataset
-        localStorage.setItem(CACHE_KEY, JSON.stringify({ timestamp: Date.now(), schedule: finalSchedule }));
-        return finalSchedule;
-
-    } catch (e) { 
-        throw e; 
-    }
+    });
 }
 
 // ------------------------------------------------------------------------
 // Utility Functions
 // ------------------------------------------------------------------------
-
-/**
- * Converts raw CSV text into an array of JavaScript objects mapped to the CSV headers.
- * @param {string} text - The raw string contents of the CSV file.
- * @returns {Array<Object>} An array of objects representing the rows.
- */
-function parseCSV(text) {
-    const lines = text.split(/\r?\n/);
-    const headers = lines[0].split(',').map(header => header.replace(/"/g, '').trim());
-    
-    return lines.slice(1).filter(line => line.trim()).map(line => {
-        const values = line.split(',').map(value => value.replace(/"/g, '').trim());
-        return headers.reduce((obj, header, index) => { 
-            obj[header] = values[index]; 
-            return obj; 
-        }, {});
-    });
-}
 
 /**
  * Parses GTFS formatted time (HH:MM:SS) into a standard JS Date object.
@@ -509,11 +429,9 @@ async function fetchRealTimeData() {
 	const errorBox = document.getElementById('error-box');
     try {
         const response = await fetch(RT_URL);
-	if (response.status === 403) {
-	    if (errorBox) {
-		errorBox.innerHTML = CORS_ERROR_MESSAGE;
-            }
-            return null;
+		if (response.status == 403) {
+		    showCorsProxyWarning();
+	        return null;
         }
 
         if (!response.ok) {
