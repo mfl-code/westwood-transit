@@ -112,7 +112,7 @@ const westwoodTargets = [
 async function getSchedulesForStation(startStationName, referenceTime = new Date()) {
     const startStation = stations.find(station => station.name === startStationName);
 
-    if (!startStation) throw "Station not found";
+    if (!startStation) throw new Error("Station not found");
 
     // Filter targets that are further down the line, and calculate ETA for transfer
     const batchRequest = milleniumTargets
@@ -172,8 +172,15 @@ async function getSchedulesForStops(referenceTime = new Date()) {
 async function getBusArrivals(requestArray) {
     let scheduleData = getCachedSchedule();
 
-    if (!scheduleData) {
-        scheduleData = await refreshGTFSCache();
+	if (!scheduleData) {
+        // Request a cross-tab lock named 'gtfs_update'
+        await navigator.locks.request('gtfs_update', async () => {
+            // Double-check the cache inside the lock in case another tab just filled it
+            scheduleData = getCachedSchedule();
+            if (!scheduleData) {
+                scheduleData = await refreshGTFSCache();
+            }
+        });
     }
 
     const realTimeEntries = await fetchRealTimeData();
@@ -211,8 +218,8 @@ async function getBusArrivals(requestArray) {
                         const stopUpdate = update.stopTimeUpdate?.find(st => 
                             st.stopId === entry.stopId || st.stopSequence === entry.stopSequence
                         );
-                        if (stopUpdate?.arrival?.delay) {
-                            arrivalTime = new Date(arrivalTime.getTime() + (stopUpdate.arrival.delay * 1000));
+                        if (stopUpdate?.arrival?.time) {
+                            arrivalTime = new Date(stopUpdate.arrival.time * 1000);
                             status = 'updated';
                         }
                     }
@@ -559,7 +566,7 @@ async function fetchRealTimeData() {
 function saveApiKey(key) {
     const d = new Date();
     d.setTime(d.getTime() + (365 * 24 * 60 * 60 * 1000));
-    document.cookie = `translink_api_key=${key};expires=${d.toUTCString()};path=/`;
+    document.cookie = `translink_api_key=${key};expires=${d.toUTCString()};path=/;Secure;SameSite=Strict`;
 }
 
 /**

@@ -60,8 +60,7 @@
                     </tr>`;
                 });
             } catch (errorMessage) {
-                // Handle CORS or Parsing Errors gracefully
-                errorBox.innerHTML = errorMessage;
+                errorBox.innerHTML = escapeHTML(errorMessage);
                 errorBox.style.display = 'block';
                 document.getElementById('display-area').style.display = 'none';
             } finally {
