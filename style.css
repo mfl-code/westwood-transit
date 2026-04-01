@@ -278,7 +278,7 @@ button:disabled { background-color: #a0aec0; cursor: not-allowed; }
 }
 
 .status-updated::after {
-    content: " 📶";
+    content: " 🛜";
     font-size: 0.9em;
     vertical-align: middle;
 }
