@@ -9,7 +9,6 @@ importScripts('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js'
 
 // Listen for the start command from the main thread
 self.onmessage = async function(e) {
-	debugger;
     const { url, allBusLines, allStopCodes } = e.data;
 
     try {
@@ -122,7 +121,7 @@ function parseCSV(text) {
     const lines = text.split(/\r?\n/);
     const headers = lines[0].split(',').map(header => header.replace(/"/g, '').trim());
     return lines.slice(1).filter(line => line.trim()).map(line => {
-        const values = line.line.split(/,(?=(?:(?:[^"]*(?:\\")?[^"]*"){2})*[^"]*$)/)
+        const values = line.split(/,(?=(?:(?:[^"]*(?:\\")?[^"]*"){2})*[^"]*$)/)
 						// Split logic that ignores both commas in quotes AND escaped quotes
 			.map(value => value.replace(/"/g, '').trim());
         return headers.reduce((obj, header, index) => { 
