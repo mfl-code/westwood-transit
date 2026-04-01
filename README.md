@@ -20,7 +20,7 @@ Live service updates (delays, position, and cancellations) are fetched as binary
 
 - **Smart Transfer Logic:** Dynamically calculates the next "catchable" bus at major hubs (Moody Centre, Coquitlam Central) by applying SkyTrain travel time offsets to your current location.
 - **Live Status Indicators:**
-    - 🕒 **Verified:** Confirmed static timing points.
+    - 🕒 **Time Point** The bus waits if it comes early.
     - 🛜 **Real-time:** Live arrival data decoded from Protobuf.
     - ~~**00:00**~~ **Cancelled:** Trips explicitly flagged as removed in the live feed.
 - **Over-Midnight Support:** Robust handling of GTFS time formats (e.g., 25:30:00) to ensure late-night commuters see accurate data.
