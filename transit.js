@@ -40,7 +40,7 @@ const BUS_ARRIVAL_WINDOW_MINS = 120; // Default window for looking up upcoming b
 /** @type {string} 
  * Formatted message to show when cors-anywhere permission need to be updated. 
  */
-CORS_ERROR_MESSAGE = `
+const CORS_ERROR_MESSAGE = `
             <div class="api-warning" style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 6px; border: 1px solid #ffeeba;">
                 <strong>⚠ Action Required: Enable Data Access</strong><br>
                 The temporary connection to the transit data server has expired. 
@@ -100,8 +100,7 @@ const westwoodTargets = [
 ];
 
 // ------------------------------------------------------------------------
-// Public API Functions
-// ------------------------------------------------------------------------
+// Public API Functions// ------------------------------------------------------------------------
 
 /**
  * Calculates travel times from a starting SkyTrain station to specific transfer hubs
@@ -172,8 +171,6 @@ async function getSchedulesForStops(referenceTime = new Date()) {
  */
 async function getBusArrivals(requestArray) {
     let scheduleData = getCachedSchedule();
-    const targetBusLines = [...new Set(requestArray.map(request => request.line))];
-    const targetStopCodes = [...new Set(requestArray.map(request => request.stop))];
 
     if (!scheduleData) {
         scheduleData = await refreshGTFSCache();
@@ -241,7 +238,7 @@ async function getBusArrivals(requestArray) {
                 let statusClass = '';
                 if (arrival.status === 'verified') statusClass = 'status-verified';
                 if (arrival.status === 'updated') statusClass = 'status-updated';
-                if (arrival.status === 'cancelled') statusClass = 'status-cancelled'
+                if (arrival.status === 'cancelled') statusClass = 'status-cancelled';
                 htmlFragment += `<span class="time-entry ${statusClass} ${catchableClass}">${timeStr}</span>`;
             });
         }
@@ -346,7 +343,7 @@ async function refreshGTFSCache() {
 
         const tripIdx      = stHeaders.indexOf("trip_id");
         const stopIdx      = stHeaders.indexOf("stop_id");
-        const routeIdx     = stHeaders.indexOf("route_id")
+        const routeIdx     = stHeaders.indexOf("route_id");
         const arrivalIdx   = stHeaders.indexOf("arrival_time");
         const timepointIdx = stHeaders.indexOf("timepoint");
 
@@ -484,6 +481,16 @@ function showCorsProxyWarning() {
 }
 
 /**
+ * Safely escapes HTML special characters in a string using the browser's DOM.
+ * @param {string} str - The raw string containing potential HTML tags or entities.
+ * @returns {string} The escaped string safe for insertion into innerHTML.
+ */
+function escapeHTML(str) {
+  const div = document.createElement('div');
+  div.textContent = str;
+  return div.innerHTML;
+}
+/**
  * Fetches and decodes the GTFS Realtime Protobuf feed.
  */
 async function fetchRealTimeData() {
@@ -492,11 +499,25 @@ async function fetchRealTimeData() {
 
     const RT_URL = `${PROXY}https://gtfsapi.translink.ca/v3/gtfsrealtime?apikey=${apiKey}`;
 
-    let gotRealTimeData = false;
+	const errorBox = document.getElementById('error-box');
     try {
         const response = await fetch(RT_URL);
-        if (!response.ok) throw new Error("Invalid API Key");
-        gotRealTimeData = true;
+	if (response.status === 403) {
+	    if (errorBox) {
+		errorBox.innerHTML = CORS_ERROR_MESSAGE;
+            }
+            return null;
+        }
+
+        if (!response.ok) {
+            if (errorBox) {
+		errorBox.innerHTML = `<div class="api-warning">
+                    Real-time data is currently unavailable 
+                    <a href="index.html">Update your API Key here</a>.
+                </div>`;
+            }
+            return null;
+        }
 
         // TransLink returns binary data (ArrayBuffer), not JSON
         const buffer = await response.arrayBuffer();
@@ -504,7 +525,11 @@ async function fetchRealTimeData() {
         // Optimization: Use the cached schema type instead of calling protobuf.load() again
         const feedMessage = await getGtfsType();
         if (!feedMessage) {
-            return null;
+            if (errorBox) {
+		errorBox.innerHTML = `<div class="api-warning">
+                    Real-time data is currently unavailable. Can't download GTFS Types. 
+                </div>`;
+            }
         }
         
         // Decode the binary buffer into a Protobuf Message object
@@ -517,31 +542,13 @@ async function fetchRealTimeData() {
         return object.entity || [];
     } catch (e) {
         console.error("Protobuf Error:", e);
-        showApiWarning(gotRealTimeData, e);
-        return null;
-    }
-}
-
-/**
- * Displays a warning if the API key is missing or failing.
- * @param {gotRealTimeData} key - Whether calling to the API suceeded.
- * @param {error} e - Error thrown
- */
-function showApiWarning(gotRealTimeData, error) {
-    const errorBox = document.getElementById('error-box');
-    if (errorBox) {
-        if (gotRealTimeData) {
+        if (errorBox) {
+            let message = escapeHTML(e);
             errorBox.innerHTML = `<div class="api-warning">
-                Real-time data is currently unavailable 
-                <a href="index.html">Update your API Key here</a>.
-            </div>`;
-	} else {
-            errorBox.innerHTML = `<div class="api-warning">
-                Can't get Real-time data: {e}
+                Real-time data is currently unavailable: ${message}. 
             </div>`;
         }
-        
-        errorBox.style.display = 'block';
+        return null;
     }
 }
 
