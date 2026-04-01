@@ -32,11 +32,24 @@ const CACHE_KEY = "translink_dynamic_cache";
  */
 const CACHE_DURATION = 60 * 60 * 1000; // 1 Hour in milliseconds
 
-// Global Constants
 /** @type {number} 
  * The time window (in minutes) to search forward for upcoming bus departures. 
  */
 const BUS_ARRIVAL_WINDOW_MINS = 120; // Default window for looking up upcoming buses
+
+/** @type {string} 
+ * Formatted message to show when cors-anywhere permission need to be updated. 
+ */
+CORS_ERROR_MESSAGE = `
+            <div class="api-warning" style="background: #fff3cd; color: #856404; padding: 15px; border-radius: 6px; border: 1px solid #ffeeba;">
+                <strong>⚠ Action Required: Enable Data Access</strong><br>
+                The temporary connection to the transit data server has expired. 
+                <ol style="margin-top: 10px;">
+                    <li>Click this link: <a href="https://cors-anywhere.herokuapp.com/corsdemo" target="_blank" style="text-decoration: underline; font-weight: bold;">CORS Anywhere Demo Page</a></li>
+                    <li>Click the button that says <strong>"Request temporary access to the demo server"</strong>.</li>
+                    <li>Return here and refresh the page.</li>
+                </ol>
+            </div>`;
 
 // ------------------------------------------------------------------------
 // Configuration & Target Data
@@ -166,7 +179,7 @@ async function getBusArrivals(requestArray) {
         scheduleData = await refreshGTFSCache();
     }
 
-    const entities = await fetchRealTimeData();
+    const realTimeEntries = await fetchRealTimeData();
 
     return requestArray.map(request => {
         const rawArrivals = (scheduleData[request.stop] && scheduleData[request.stop][request.line]) || [];
@@ -178,7 +191,7 @@ async function getBusArrivals(requestArray) {
                 let status = entry.isValidated ? 'verified' : 'scheduled';
                 
                 // Check if there is a live update for this specific Trip ID
-                const update = entities?.find(entity => {
+                const update = realTimeEntries?.find(entity => {
                     const trip = entity.tripUpdate?.trip;
                     if (!trip) return false;
 
@@ -279,7 +292,7 @@ async function refreshGTFSCache() {
         // Step 2: Fetch and extract the ZIP archive
         const response = await fetch(GTFS_URL);
         if (response.status === 403) {
-            throw "Access Denied. Please visit <a href='https://cors-anywhere.herokuapp.com/corsdemo' target='_blank'>CORS Anywhere</a> and <strong>press the button</strong> to request temporary access.";
+            throw CORS_ERROR_MESSAGE;
         }
         if (!response.ok) throw `Server Error: ${response.statusText}`;
 
@@ -433,12 +446,41 @@ function getCachedSchedule() {
  */
 async function getGtfsType() {
     if (!GTFS_ROOT) {
-        // Optimization: Load the schema definition from the official Google repository
-        // Doing this once saves a network request and CPU cycles on every refresh.
-        GTFS_ROOT = await protobuf.load("https://raw.githubusercontent.com/google/transit/master/gtfs-realtime/proto/gtfs-realtime.proto");
+        const PROTO_URL = PROXY + "https://raw.githubusercontent.com/google/transit/master/gtfs-realtime/proto/gtfs-realtime.proto";
+        
+        try {
+            const response = await fetch(PROTO_URL, {
+                headers: { 'X-Requested-With': 'XMLHttpRequest' }
+            });
+
+            if (response.status === 403) {
+                // This specific status usually indicates the CORS Anywhere "Demo" access has expired
+                showCorsProxyWarning();
+               return null;
+            }
+
+            if (!response.ok) throw new Error("Failed to fetch Protobuf schema.");
+            
+            const protoText = await response.text();
+            GTFS_ROOT = protobuf.parse(protoText).root;
+            
+        } catch (e) {
+            console.error("Schema Fetch Error:", e);
+            throw e; 
+        }
     }
-    // Return the specific message type we need to decode TransLink's data
     return GTFS_ROOT.lookupType("transit_realtime.FeedMessage");
+}
+
+/**
+ * Displays a specific warning when the CORS proxy requires manual activation.
+ */
+function showCorsProxyWarning() {
+    const errorBox = document.getElementById('error-box');
+    if (errorBox) {
+        errorBox.innerHTML = CORS_ERROR_MESSAGE;
+        errorBox.style.display = 'block';
+    }
 }
 
 /**
@@ -450,42 +492,55 @@ async function fetchRealTimeData() {
 
     const RT_URL = `${PROXY}https://gtfsapi.translink.ca/v3/gtfsrealtime?apikey=${apiKey}`;
 
+    let gotRealTimeData = false;
     try {
         const response = await fetch(RT_URL);
         if (!response.ok) throw new Error("Invalid API Key");
+        gotRealTimeData = true;
 
         // TransLink returns binary data (ArrayBuffer), not JSON
         const buffer = await response.arrayBuffer();
         
         // Optimization: Use the cached schema type instead of calling protobuf.load() again
-        const FeedMessage = await getGtfsType();
+        const feedMessage = await getGtfsType();
+        if (!feedMessage) {
+            return null;
+        }
         
         // Decode the binary buffer into a Protobuf Message object
-        const message = FeedMessage.decode(new Uint8Array(buffer));
+        const message = feedMessage.decode(new Uint8Array(buffer));
         
         // Convert the Message object into a plain JavaScript object for easier manipulation
         // We convert Enums and Longs to Strings to avoid precision issues and simplify matching
-        const object = FeedMessage.toObject(message, { enums: String, longs: String });
+        const object = feedMessage.toObject(message, { enums: String, longs: String });
 
         return object.entity || [];
     } catch (e) {
         console.error("Protobuf Error:", e);
-        showApiWarning();
+        showApiWarning(gotRealTimeData, e);
         return null;
     }
 }
 
 /**
  * Displays a warning if the API key is missing or failing.
+ * @param {gotRealTimeData} key - Whether calling to the API suceeded.
+ * @param {error} e - Error thrown
  */
-function showApiWarning() {
+function showApiWarning(gotRealTimeData, error) {
     const errorBox = document.getElementById('error-box');
     if (errorBox) {
-        errorBox.innerHTML = `
-            <div class="api-warning">
-                Real-time data is currently unavailable or bad. 
+        if (gotRealTimeData) {
+            errorBox.innerHTML = `<div class="api-warning">
+                Real-time data is currently unavailable 
                 <a href="index.html">Update your API Key here</a>.
             </div>`;
+	} else {
+            errorBox.innerHTML = `<div class="api-warning">
+                Can't get Real-time data: {e}
+            </div>`;
+        }
+        
         errorBox.style.display = 'block';
     }
 }
