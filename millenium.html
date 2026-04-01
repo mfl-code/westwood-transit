@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Millennium Line to Westwood Plateau</title>
@@ -38,7 +37,7 @@
 
                 results.forEach(row => {
                     let statusClass = '';
-                    if (row.status === 'verified') statusClass = 'status-verified';
+                    if (row.status === 'timepoint') statusClass = 'status-timepoint';
                     if (row.status === 'updated') statusClass = 'status-updated';
                     if (row.status === 'cancelled') statusClass = 'status-cancelled';
 
@@ -106,7 +105,7 @@
         </section>
 
         <div class="legend">
-            <div class="legend-item"><span class="status-verified">🕒</span> Verified Time</div>
+            <div class="legend-item"><span>🕒</span> Bus waits if early</div>
             <div class="legend-item"><span>🛜</span> Real-time Update</div>
             <div class="legend-item"><span style="color: #e53e3e; text-decoration: line-through;">00:00</span> Cancelled</div>
         </div>
